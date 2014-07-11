@@ -2,34 +2,8 @@ import os
 import fcntl
 import errno
 import random
-from multiprocessing.sharedctypes import Value as SharedValue
 
 from .errors import ApplicationError
-
-
-class shared_property(object):
-
-    def __init__(self, name, type, initial=None, readonly=True, lock=False):
-        self.name = '_' + name
-        self.type = type
-        self.readonly = readonly
-        self.initial = initial
-        self.lock = lock
-
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            return self
-        if self.name not in instance.__dict__:
-            setattr(instance, self.name, SharedValue(self.type, lock=self.lock))
-            instance.__dict__[self.name].value = self.initial
-        return instance.__dict__[self.name].value
-
-    def __set__(self, instance, value):
-        if self.readonly:
-            raise AttributeError('Attribute is read-only')
-        if self.name not in instance.__dict__:
-            setattr(instance, self.name, SharedValue(self.type, lock=self.lock))
-        instance.__dict__[self.name].value = value
 
 
 def kill(pid, sig):
