@@ -34,25 +34,25 @@ class Server(object):
 
         self.workers = []
 
-        signal.signal(signal.SIGQUIT, lambda n, f: self.stop())
-        signal.signal(signal.SIGTERM, lambda n, f: self.stop_gracefully())
-
         self._is_stopping = False
         self._is_stopping_gracefully = False
+
+        self._signal_queue = []
+        self._signal_pipe = []
 
     @property
     def is_stopping(self):
         return self._is_stopping or self._is_stopping_gracefully
 
     def stop(self):
-        logger.info('[master] (pid %s) SIGQUIT received, stopping workers...', os.getpid())
+        logger.info('[master] (pid %s) stopping workers...', os.getpid())
         self._is_stopping = True
         for worker in self.workers:
             worker.death = time.time() + self.mercy
             util.kill(worker.pid, signal.SIGQUIT)
 
     def stop_gracefully(self):
-        logger.info('[master] (pid %s) SIGTERM received, gracefully stopping workers...', os.getpid())
+        logger.info('[master] (pid %s) gracefully stopping workers...', os.getpid())
         self._is_stopping_gracefully = True
         for worker in self.workers:
             worker.death = time.time() + self.mercy
@@ -95,10 +95,25 @@ class Server(object):
         logger.info('[worker] (pid %s) stopped', worker.pid)
         os._exit(return_code)
 
-    def run(self):
-        pid = os.getpid()
+    def signal(self, signum, frame):
+        if len(self._signal_queue) < 10:
+            self._signal_queue.append(signum)
+            try:
+                os.write(self._signal_pipe[1], '\x00')
+            except IOError as e:
+                if e.errno not in [errno.EAGAIN, errno.EINTR]:
+                    raise
 
-        logger.info('[master] (pid %s) running', pid)
+    def run(self):
+        logger.info('[master] (pid %s) running', os.getpid())
+
+        self._signal_pipe = os.pipe()
+        map(util.set_not_blocking, self._signal_pipe)
+        # map(util.set_close_on_exec, self._signal_pipe)
+
+        for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM']:
+            signum = getattr(signal, signame)
+            signal.signal(signum, self.signal)
 
         for i in range(self.procnum):
             worker = self.spawn()
@@ -106,18 +121,35 @@ class Server(object):
 
         try:
             while True:
+
+                signum = self._signal_queue.pop(0) if len(self._signal_queue) else None
+
+                if signum:
+                    if signum == signal.SIGINT:
+                        self.stop()
+                    elif signum == signal.SIGQUIT:
+                        self.stop()
+                    elif signum == signal.SIGTERM:
+                        self.stop_gracefully()
+                    else:
+                        logger.warning('[master] (pid %s) ignoring signal %s', os.getpid(), signum)
+
                 try:
-                    select.select([], [], [], self.timeout)
+                    select.select([self._signal_pipe[0]], [], [], self.timeout)
+                    while os.read(self._signal_pipe[0], 1):
+                        pass
                 except select.error as e:
                     if e.args[0] not in [errno.EINTR, errno.EAGAIN]:
                         raise
+                except OSError as e:
+                    if e.errno not in [errno.EINTR, errno.EAGAIN]:
+                        raise
+
                 self.check_state()
                 self.check_children()
                 self.check_deadlines()
         except SystemExit:
             raise
-        except KeyboardInterrupt:
-            self.stop()
         except:
             logger.exception('[master] (pid %s) unhandled exception', os.getpid())
             for worker in self.workers:

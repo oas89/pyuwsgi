@@ -46,11 +46,9 @@ class Worker(object):
         self._accepting.value = value
 
     def stop(self):
-        logger.debug('[worker] (pid %s) received SIGQUIT', os.getpid())
         raise SystemExit(errors.EXIT_CODE_STOP)
 
     def stop_gracefully(self):
-        logger.debug('[worker] (pid %s) received SIGTERM', os.getpid())
         self.accepting = False
 
     def run(self):
