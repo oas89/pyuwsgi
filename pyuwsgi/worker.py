@@ -1,7 +1,7 @@
 import os
-import sys
-import errno
+import time
 import mmap
+import errno
 import ctypes
 import signal
 import socket
@@ -27,7 +27,7 @@ class Worker(object):
 
         self._shared = mmap.mmap(-1, mmap.PAGESIZE)
         self._requests = ctypes.c_int.from_buffer(self._shared, 1)
-        self._accepting = ctypes.c_bool.from_buffer(self._shared, 0)
+        self._accepting = ctypes.c_bool.from_buffer(self._shared, False)
 
     @property
     def requests(self):
@@ -46,14 +46,19 @@ class Worker(object):
         self._accepting.value = value
 
     def stop(self):
-        raise SystemExit(errors.EXIT_CODE_STOP)
+        raise StopIteration
 
     def stop_gracefully(self):
         self.accepting = False
 
-    def run(self):
-        self.pid = os.getpid()
+    def reset(self, pid):
+        self.pid = pid or os.getpid()
+        self.birth = time.time()
+        self.death = 0
+        self.requests = 0
+        self.accepting = False
 
+    def run(self):
         signal.signal(signal.SIGQUIT, lambda n, f: self.stop())
         signal.signal(signal.SIGTERM, lambda n, f: self.stop_gracefully())
 
@@ -83,7 +88,8 @@ class Worker(object):
                 self.pid,
                 addr[0],
                 connection.environ['REQUEST_METHOD'],
-                connection.environ['REQUEST_URI'])
+                connection.environ['REQUEST_URI'],
+            )
             handler = self.handler_cls(
                 connection.stdin,
                 connection.stdout,
