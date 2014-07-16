@@ -16,7 +16,7 @@ class Server(object):
 
     def __init__(self, sock, app,
                  timeout=1,
-                 procnum=1,
+                 processes=1,
                  worker_cls=None,
                  connection_cls=None,
                  handler_cls=None,
@@ -25,7 +25,7 @@ class Server(object):
         self.sock = sock
         self.app = app
         self.timeout = timeout
-        self.procnum = procnum
+        self.processes = processes
         self.worker_cls = worker_cls
         self.connection_cls = connection_cls
         self.handler_cls = handler_cls
@@ -104,7 +104,7 @@ class Server(object):
             signal.signal(signum, self.signal)
 
     def setup_workers(self):
-        for n in range(self.procnum):
+        for n in range(self.processes):
             self.workers[n] = self.worker_cls(
                 self.sock,
                 self.app,
