@@ -2,8 +2,27 @@ import os
 import fcntl
 import errno
 import random
+import ctypes
+import ctypes.util
 
 from .errors import ApplicationError
+
+
+def set_process_title(title):
+    libc = ctypes.CDLL(ctypes.util.find_library('c'))
+    argc = ctypes.c_int()
+    argv = ctypes.POINTER(ctypes.c_char_p)()
+    ctypes.pythonapi.Py_GetArgcArgv(ctypes.byref(argc), ctypes.byref(argv))
+
+    length = 0
+
+    for n in range(argc.value):
+        length += len(argv[n]) + 1
+
+    title = title[:length - 2]
+    title = title.ljust(length, '\x00')
+
+    libc.strncpy(argv.contents, title, length)
 
 
 def kill(pid, sig):
@@ -19,10 +38,6 @@ def close(fd):
         fd.close()
     else:
         os.close(fd)
-
-
-def set_process_title(title):
-    pass
 
 
 def seed():
