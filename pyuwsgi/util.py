@@ -1,6 +1,8 @@
 import os
+import re
 import fcntl
 import errno
+import socket
 import random
 import ctypes
 import ctypes.util
@@ -99,3 +101,11 @@ def daemonize(umask=0):
         os.dup2(null, 0)
         os.dup2(null, 1)
         os.dup2(null, 2)
+
+
+def parse_address(address):
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$', address):
+        address = address.split(':', 1)
+        return socket.AF_INET, (str(address[0]), int(address[1]))
+    else:
+        return socket.AF_UNIX, str(address)
