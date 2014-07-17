@@ -45,18 +45,18 @@ class Server(object):
                 return n
 
     def stop(self):
-        logger.info('[master] (pid %s) stopping workers...', os.getpid())
+        logger.info('stopping workers...')
         self.is_stopping = True
         for worker in self.workers.values():
-            if worker.pid and not worker.death:
+            if worker.pid > 0 and not worker.death:
                 worker.death = time.time() + self.mercy
                 util.kill(worker.pid, signal.SIGQUIT)
 
     def stop_gracefully(self):
-        logger.info('[master] (pid %s) gracefully stopping workers...', os.getpid())
+        logger.info('stopping workers gracefully...')
         self.is_stopping = True
         for worker in self.workers.values():
-            if worker.pid:
+            if worker.pid > 0:
                 worker.death = time.time() + self.mercy
                 util.kill(worker.pid, signal.SIGTERM)
 
@@ -66,18 +66,16 @@ class Server(object):
         worker.reset(pid)
 
         if pid:
-            logger.info('[master] (pid %s) spawning worker %s (pid %s)', os.getpid(), n, pid)
+            logger.info('spawning worker %s pid %s', n, pid)
             return
 
         try:
             worker.run()
         except StopIteration:
-            os._exit(errors.STOPPING)
+            pass
         except errors.ApplicationError:
-            logger.exception('[worker] (pid %s) cannot load application', worker.pid)
             os._exit(errors.APPLICATION_ERROR)
         except:
-            logger.exception('[worker] (pid %s) unhandled exception', worker.pid)
             os._exit(errors.UNHANDLED_EXCEPTION)
         os._exit(errors.STOPPING)
 
@@ -115,7 +113,7 @@ class Server(object):
             self.spawn(n)
 
     def run(self):
-        logger.info('[master] (pid %s) running', os.getpid())
+        logger.info('running server pid %s', os.getpid())
 
         self.setup_signals()
         self.setup_workers()
@@ -135,7 +133,7 @@ class Server(object):
                     elif signum == signal.SIGCHLD:
                         pass
                     else:
-                        logger.warning('[master] (pid %s) ignoring signal %s', os.getpid(), signum)
+                        logger.warning('ignoring signal %s', os.getpid(), signum)
 
                 try:
                     select.select([self._signal_pipe[0]], [], [], self.timeout)
@@ -154,7 +152,7 @@ class Server(object):
         except StopIteration:
             pass
         except:
-            logger.exception('[master] (pid %s) unhandled exception', os.getpid())
+            logger.exception('unhandled exception in server loop', os.getpid())
             for worker in self.workers.values():
                 util.kill(worker.pid, signal.SIGKILL)
             os._exit(errors.UNHANDLED_EXCEPTION)
@@ -163,47 +161,92 @@ class Server(object):
     def check_state(self):
         if self.is_stopping:
             for worker in self.workers.values():
-                if worker.pid:
+                if worker.pid > 0:
                     return
             raise StopIteration
 
     def check_children(self):
         try:
             pid, status = os.waitpid(-1, os.WNOHANG)
+            if pid <= 0:
+                return
 
-            if pid > 0:
-                worker_id = self.find_worker_id(pid)
-                worker = self.workers.get(worker_id)
+            id = self.find_worker_id(pid)
+            worker = self.workers.get(id)
 
-                if worker:
-                    worker.pid = 0
-                    logger.info('[master] (pid %s) buried worker (pid %s)', os.getpid(), pid)
+            if not worker:
+                logger.warning('unknown process pid %s died', pid)
+                return
 
-                    if not self.is_stopping:
-                        self.spawn(worker_id)
+            worker.reset(-1)
+
+            if self.is_stopping:
+                logger.info('worker %s pid %s died', id, pid)
+                return
+
+            if os.WIFEXITED(status):
+                if os.WEXITSTATUS(status) == errors.APPLICATION_ERROR:
+                    logger.info(
+                        'worker %s pid %s '
+                        'failed to load application, respawning',
+                        id, pid)
+                elif os.WEXITSTATUS(status) == errors.UNHANDLED_EXCEPTION:
+                    logger.info(
+                        'worker %s pid %s '
+                        'got unhandled exception, respwaning',
+                        id, pid)
+                elif os.WEXITSTATUS(status) == errors.STOPPING:
+                    logger.info(
+                        'worker %s pid %s '
+                        'exited normally, respwaning', id, pid)
                 else:
-                    logger.warning('[master] (pid %s) buried unknown process', os.getpid())
+                    logger.info(
+                        'worker %s pid %s '
+                        'exited with status %s, respwaning',
+                        id, pid, os.WEXITSTATUS(status))
+            elif os.WIFSIGNALED(status):
+                logger.info(
+                    'worker %s pid %s '
+                    'killed by signal %s, respawning',
+                    id, pid, os.WTERMSIG(status))
+            else:
+                logger.warning(
+                    'worker %s pid %s '
+                    'died for unknown reason, respwaning',
+                    id, pid)
+
+            if not self.is_stopping:
+                self.spawn(id)
 
         except OSError as e:
             if e.errno not in [errno.EINTR, errno.ECHILD]:
                 raise
 
     def check_deadlines(self):
-        for worker in self.workers.values():
-            if worker.pid:
+        for wid, worker in self.workers.items():
+            if worker.pid > 0:
                 if worker.death and worker.death < time.time():
-                    logger.info('[worker] (pid %s) death time', worker.pid)
+                    logger.info(
+                        'worker %s pid %s '
+                        'dying to long, killing',
+                        wid, worker.pid)
                     util.kill(worker.pid, signal.SIGKILL)
                     continue
 
                 if not worker.death and self.max_requests and worker.requests > self.max_requests:
-                    logger.info('[worker] (pid %s) requests limit', worker.pid)
+                    logger.info(
+                        'worker %s pid %s '
+                        'exceeded requests limit, stopping',
+                        wid, worker.pid)
                     worker.death = time.time() + self.mercy
                     util.kill(worker.pid, signal.SIGTERM)
                     continue
 
                 if not worker.death and self.max_lifetime and worker.lifetime > self.max_lifetime:
-                    logger.info('[worker] (pid %s) lifetime limit', worker.pid)
+                    logger.info(
+                        'worker %s pid %s '
+                        'exceeded lifetime limit, stopping',
+                        wid, worker.pid)
                     worker.death = time.time() + self.mercy
                     util.kill(worker.pid, signal.SIGTERM)
                     continue
