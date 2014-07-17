@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import errno
 import select
@@ -36,8 +35,8 @@ class Server(object):
 
         self.is_stopping = False
 
-        self._signal_queue = []
-        self._signal_pipe = []
+        self._signals = []
+        self._selfpipe = []
 
     def find_worker_id(self, pid):
         for n, worker in self.workers.items():
@@ -80,22 +79,19 @@ class Server(object):
         os._exit(errors.STOPPING)
 
     def signal(self, signum, frame):
-        if len(self._signal_queue) < 10:
-            self._signal_queue.append(signum)
-            try:
-                os.write(self._signal_pipe[1], '\x00')
-            except IOError as e:
-                if e.errno not in [errno.EAGAIN, errno.EINTR]:
-                    raise
+        if len(self._signals) < 10:
+            self._signals.append(signum)
 
     def setup_signals(self):
-        if self._signal_pipe:
-            map(os.close, self._signal_pipe)
+        if self._selfpipe:
+            map(os.close, self._selfpipe)
 
-        self._signal_pipe = os.pipe()
+        self._selfpipe = os.pipe()
 
-        map(util.set_not_blocking, self._signal_pipe)
-        #  map(util.set_close_on_exec, self._signal_pipe)
+        map(util.set_not_blocking, self._selfpipe)
+        #map(util.set_close_on_exec, self._signal_pipe)
+
+        signal.set_wakeup_fd(self._selfpipe[1])
 
         for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGCHLD']:
             signum = getattr(signal, signame)
@@ -121,7 +117,7 @@ class Server(object):
         try:
             while True:
 
-                signum = self._signal_queue.pop(0) if len(self._signal_queue) else None
+                signum = self._signals.pop(0) if len(self._signals) else None
 
                 if signum:
                     if signum == signal.SIGINT:
@@ -136,8 +132,8 @@ class Server(object):
                         logger.warning('ignoring signal %s', os.getpid(), signum)
 
                 try:
-                    select.select([self._signal_pipe[0]], [], [], self.timeout)
-                    while os.read(self._signal_pipe[0], 1):
+                    select.select([self._selfpipe[0]], [], [], self.timeout)
+                    while os.read(self._selfpipe[0], 1):
                         pass
                 except select.error as e:
                     if e.args[0] not in [errno.EINTR, errno.EAGAIN]:
