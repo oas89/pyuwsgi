@@ -129,7 +129,7 @@ class Server(object):
                     elif signum == signal.SIGCHLD:
                         pass
                     else:
-                        logger.warning('ignoring signal %s', os.getpid(), signum)
+                        logger.warning('ignoring signal %s', signum)
 
                 try:
                     select.select([self._selfpipe[0]], [], [], self.timeout)
@@ -148,7 +148,7 @@ class Server(object):
         except StopIteration:
             pass
         except:
-            logger.exception('unhandled exception in server loop', os.getpid())
+            logger.exception('unhandled exception in server loop')
             for worker in self.workers.values():
                 util.kill(worker.pid, signal.SIGKILL)
             os._exit(errors.UNHANDLED_EXCEPTION)
@@ -229,7 +229,8 @@ class Server(object):
                     util.kill(worker.pid, signal.SIGKILL)
                     continue
 
-                if not worker.death and self.max_requests and worker.requests > self.max_requests:
+                if not worker.death and self.max_requests and \
+                                worker.requests > self.max_requests:
                     logger.info(
                         'worker %s pid %s '
                         'exceeded requests limit, stopping',
@@ -238,7 +239,8 @@ class Server(object):
                     util.kill(worker.pid, signal.SIGTERM)
                     continue
 
-                if not worker.death and self.max_lifetime and worker.lifetime > self.max_lifetime:
+                if not worker.death and self.max_lifetime and \
+                                worker.lifetime > self.max_lifetime:
                     logger.info(
                         'worker %s pid %s '
                         'exceeded lifetime limit, stopping',

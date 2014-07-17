@@ -6,7 +6,7 @@ import ctypes
 import signal
 import socket
 import logging
-from . import util, errors
+from . import util
 
 logger = logging.getLogger(__name__)
 
