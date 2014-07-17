@@ -34,6 +34,8 @@ class Server(object):
         self.workers = {}
 
         self.is_stopping = False
+        self.chaining = None
+        self.chaining_pid = None
 
         self._signals = []
         self._selfpipe = []
@@ -65,6 +67,10 @@ class Server(object):
             if worker.pid > 0:
                 worker.death = time.time() + self.mercy
                 util.kill(worker.pid, signal.SIGTERM)
+
+    def chain(self):
+        logger.info('chaining workers...')
+        self.chaining = 0
 
     def spawn(self, n):
         worker = self.workers[n]
@@ -100,7 +106,7 @@ class Server(object):
 
         signal.set_wakeup_fd(self._selfpipe[1])
 
-        for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGCHLD', 'SIGWINCH']:
+        for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGCHLD', 'SIGWINCH', 'SIGHUP']:
             signum = getattr(signal, signame)
             signal.signal(signum, self.signal)
 
@@ -135,6 +141,8 @@ class Server(object):
                         self.stop_gracefully()
                     elif signum == signal.SIGWINCH:
                         self.reload()
+                    elif signum == signal.SIGHUP:
+                        self.chain()
                     elif signum == signal.SIGCHLD:
                         pass
                     else:
@@ -154,6 +162,7 @@ class Server(object):
                 self.check_state()
                 self.check_children()
                 self.check_deadlines()
+                self.check_chaining()
         except StopIteration:
             pass
         except:
@@ -257,3 +266,25 @@ class Server(object):
                     worker.death = time.time() + self.mercy
                     util.kill(worker.pid, signal.SIGTERM)
                     continue
+
+    def check_chaining(self):
+        if self.chaining is not None:
+            if self.chaining >= self.processes:
+                self.chaining = None
+                logger.info('chaining complete')
+                return
+
+            worker = self.workers[self.chaining]
+
+            if not self.chaining_pid:
+                self.chaining_pid = worker.pid
+
+                if not worker.death:
+                    worker.death = time.time() + self.mercy
+                    util.kill(worker.pid, signal.SIGTERM)
+                return
+
+            if worker.pid != self.chaining_pid:
+                if worker.accepting:
+                    self.chaining_pid = None
+                    self.chaining += 1
