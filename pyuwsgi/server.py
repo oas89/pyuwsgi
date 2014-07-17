@@ -59,6 +59,13 @@ class Server(object):
                 worker.death = time.time() + self.mercy
                 util.kill(worker.pid, signal.SIGTERM)
 
+    def reload(self):
+        logger.info('reloading workers...')
+        for worker in self.workers.values():
+            if worker.pid > 0:
+                worker.death = time.time() + self.mercy
+                util.kill(worker.pid, signal.SIGTERM)
+
     def spawn(self, n):
         worker = self.workers[n]
         pid = os.fork()
@@ -93,7 +100,7 @@ class Server(object):
 
         signal.set_wakeup_fd(self._selfpipe[1])
 
-        for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGCHLD']:
+        for signame in ['SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGCHLD', 'SIGWINCH']:
             signum = getattr(signal, signame)
             signal.signal(signum, self.signal)
 
@@ -126,6 +133,8 @@ class Server(object):
                         self.stop()
                     elif signum == signal.SIGTERM:
                         self.stop_gracefully()
+                    elif signum == signal.SIGWINCH:
+                        self.reload()
                     elif signum == signal.SIGCHLD:
                         pass
                     else:
