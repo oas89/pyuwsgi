@@ -127,6 +127,8 @@ class Server(object):
         self.setup_signals()
         self.setup_workers()
 
+        # TODO: util.set_process_title('pyuwsgi: server')
+
         try:
             while True:
 

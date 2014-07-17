@@ -10,21 +10,27 @@ import ctypes.util
 from .errors import ApplicationError
 
 
-def set_process_title(title):
+_argv_length = 0
+
+
+def set_process_title(title, use_all_argv=False):
+    global _argv_length
+
     libc = ctypes.CDLL(ctypes.util.find_library('c'))
     argc = ctypes.c_int()
     argv = ctypes.POINTER(ctypes.c_char_p)()
     ctypes.pythonapi.Py_GetArgcArgv(ctypes.byref(argc), ctypes.byref(argv))
 
-    length = 0
+    if not _argv_length:
+        for n in range(argc.value):
+            _argv_length += len(argv[n]) + 1
+            if use_all_argv:
+                break
 
-    for n in range(argc.value):
-        length += len(argv[n]) + 1
+    title = title[:_argv_length - 2]
+    title = title.ljust(_argv_length, '\x00')
 
-    title = title[:length - 2]
-    title = title.ljust(length, '\x00')
-
-    libc.strncpy(argv.contents, title, length)
+    libc.strncpy(argv.contents, title, _argv_length)
 
 
 def kill(pid, sig):

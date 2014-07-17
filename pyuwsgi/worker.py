@@ -64,11 +64,12 @@ class Worker(object):
 
         util.seed()
         util.set_blocking(self.sock)
+        # TODO: util.set_process_title('pyuwsgi: worker')
 
         self.app = util.import_name(self.app)
         self.accepting = True
 
-        logger.info('[worker] (pid %s) accepting connections', self.pid)
+        logger.info('(worker pid %s) accepting connections', self.pid)
 
         while self.accepting:
             try:
@@ -84,7 +85,7 @@ class Worker(object):
     def handle(self, client, addr):
         with self.connection_cls(client, self.app) as connection:
             logger.debug(
-                '[worker] (pid %s) %s %s "%s"',
+                '(worker pid %s) %s %s "%s"',
                 self.pid,
                 addr[0],
                 connection.environ['REQUEST_METHOD'],
