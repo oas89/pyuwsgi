@@ -167,8 +167,8 @@ class Server(object):
             if pid <= 0:
                 return
 
-            id = self.find_worker_id(pid)
-            worker = self.workers.get(id)
+            wid = self.find_worker_id(pid)
+            worker = self.workers.get(wid)
 
             if not worker:
                 logger.warning('unknown process pid %s died', pid)
@@ -177,7 +177,7 @@ class Server(object):
             worker.reset(-1)
 
             if self.is_stopping:
-                logger.info('worker %s pid %s died', id, pid)
+                logger.info('worker %s pid %s died', wid, pid)
                 return
 
             if os.WIFEXITED(status):
@@ -185,34 +185,34 @@ class Server(object):
                     logger.info(
                         'worker %s pid %s '
                         'failed to load application, respawning',
-                        id, pid)
+                        wid, pid)
                 elif os.WEXITSTATUS(status) == errors.UNHANDLED_EXCEPTION:
                     logger.info(
                         'worker %s pid %s '
                         'got unhandled exception, respwaning',
-                        id, pid)
+                        wid, pid)
                 elif os.WEXITSTATUS(status) == errors.STOPPING:
                     logger.info(
                         'worker %s pid %s '
-                        'exited normally, respwaning', id, pid)
+                        'exited normally, respwaning', wid, pid)
                 else:
                     logger.info(
                         'worker %s pid %s '
                         'exited with status %s, respwaning',
-                        id, pid, os.WEXITSTATUS(status))
+                        wid, pid, os.WEXITSTATUS(status))
             elif os.WIFSIGNALED(status):
                 logger.info(
                     'worker %s pid %s '
                     'killed by signal %s, respawning',
-                    id, pid, os.WTERMSIG(status))
+                    wid, pid, os.WTERMSIG(status))
             else:
                 logger.warning(
                     'worker %s pid %s '
                     'died for unknown reason, respwaning',
-                    id, pid)
+                    wid, pid)
 
             if not self.is_stopping:
-                self.spawn(id)
+                self.spawn(wid)
 
         except OSError as e:
             if e.errno not in [errno.EINTR, errno.ECHILD]:
